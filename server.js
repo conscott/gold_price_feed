@@ -27,21 +27,50 @@ const broadcast = async(msg) => {
     }); 
 }
 // Fetch gold price for external API
-const getGoldPrice = async() => {
-    request('https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/XAU/USD', function (error, response, body) {
-        if (error) {
-            console.log("Error Fetching Price Data: " + JSON.stringify(error));
-        } else if (response && response.statusCode == 200) {
-            let data = JSON.parse(body)
-            let profile = data[0].spreadProfilePrices[0]
-            let bid = profile.bid;
-            let ask = profile.ask;
-            let spot_per_ounce = BigNumber(bid).plus(ask).div(2);
-            let spot_per_gram = spot_per_ounce.div(28.34952).toFixed(4);
-            console.log("Sending price per gram " + spot_per_gram);
-            broadcast({'usd_per_gram_aux': spot_per_gram});
-        }
+const getGoldPriceUSD = async() => {
+    return new Promise((resolve, reject) => {
+        request('https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/XAU/USD', function (error, response, body) {
+            if (error) {
+                console.log("Error Fetching Price Data: " + JSON.stringify(error));
+                reject(error);
+            } else if (response && response.statusCode == 200) {
+                let data = JSON.parse(body)
+                let profile = data[0].spreadProfilePrices[0]
+                let bid = profile.bid;
+                let ask = profile.ask;
+                let spot_per_ounce = BigNumber(bid).plus(ask).div(2);
+                let spot_per_gram = spot_per_ounce.div(28.34952).toFixed(4);
+                resolve(spot_per_gram);
+            }
+        });
     });
+}
+
+const getGoldPriceEUR = async() => {
+   return new Promise((resolve, reject) => {
+       request('https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/XAU/EUR', function (error, response, body) {
+           if (error) {
+               console.log("Error Fetching Price Data: " + JSON.stringify(error));
+               reject(error);
+           } else if (response && response.statusCode == 200) {
+                let data = JSON.parse(body)
+                let profile = data[0].spreadProfilePrices[0]
+                let bid = profile.bid;
+                let ask = profile.ask;
+                let spot_per_ounce = BigNumber(bid).plus(ask).div(2);
+                let spot_per_gram = spot_per_ounce.div(28.34952).toFixed(4);
+                resolve(spot_per_gram);
+            }
+        });
+    });
+}
+
+const getGoldPrice = async() => {
+    let spot_per_gram_usd = await getGoldPriceUSD();
+    let spot_per_gram_eur = await getGoldPriceEUR();
+    let data = {'usd_per_gram_aux': spot_per_gram_usd, 'eur_per_gram_aux': spot_per_gram_eur};
+    console.log("Sending data " + JSON.stringify(data, null, 4));
+    broadcast(data);
 }
 
 // Ping to make sure connection is alive with all clients
@@ -54,4 +83,4 @@ const interval = setInterval(function ping() {
 }, 30000);
 
 // Want to update price every 5 seconds
-setInterval(getGoldPrice, 5000);
+setInterval(getGoldPrice, 250);
