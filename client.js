@@ -1,5 +1,5 @@
 const WebSocket = require('ws')
-const url = 'ws://localhost:8080'
+const url = 'ws://gold-price.cachetoken.io'
 const connection = new WebSocket(url)
  
 connection.onopen = () => {
