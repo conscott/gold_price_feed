@@ -1,8 +1,9 @@
+require('dotenv').config()
 const BigNumber = require('bignumber.js');
 const request = require('request');
 const winston = require('winston');
 const WebSocket = require('ws');
-const wss = new WebSocket.Server({ port: 8080 });
+const wss = new WebSocket.Server({ port: process.env.PORT });
 
 
 // Setup logging config
@@ -44,6 +45,7 @@ const broadcast = async(msg) => {
     });
 }
 
+// Get USD Price from SilverBullion.sg
 const getGoldPriceSB = async() => {
   return new Promise((resolve, reject) => {
       request('https://api.silverbullion.com.sg/api/SpotPrices/GetSpotPrices', function (error, response, body) {
@@ -68,7 +70,7 @@ const getGoldPriceSB = async() => {
   });
 }
 
-// Fetch gold price for external API
+// Get USD price from SwissQuote
 const getGoldPriceUSD = async() => {
     return new Promise((resolve, reject) => {
         request('https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/XAU/USD', function (error, response, body) {
@@ -89,6 +91,7 @@ const getGoldPriceUSD = async() => {
     });
 }
 
+// Get EUR price from SwissQuote
 const getGoldPriceEUR = async() => {
    return new Promise((resolve, reject) => {
        request('https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/XAU/EUR', function (error, response, body) {
@@ -109,12 +112,66 @@ const getGoldPriceEUR = async() => {
 }
 
 
+let price_cache_usd = 0.0;
+let price_cache_eur = 0.0;
 
 const getGoldPrice = async() => {
-    //let spot_per_gram_usd = await getGoldPriceUSD();
-    let spot_per_gram_usd = await getGoldPriceSB();
-    let spot_per_gram_eur = await getGoldPriceEUR();
-    let data = {'usd_per_gram_aux': spot_per_gram_usd, 'eur_per_gram_aux': spot_per_gram_eur};
+    let data = {}
+
+    // Market is closed from
+    // Sat 23:00 UTC to Sun 23:00 UTC
+    let open_market = true;
+    let now = new Date();
+    if (now.getUTCDay() == 6 && now.getUTCHours() >= 23 ||
+        now.getUTCDay() == 0 && now.getUTCHours() <= 23) {
+        let open_market = false;
+    }
+
+    // SwissQuote gives bad order book an hour before market open
+    // on Sunday night for whatever reason
+    let swiss_quote_bad = false;
+    if (now.getUTCDay() == 0 &&
+        now.getUTCHours() >= 22 &&
+        now.getUTCHours() <= 23) {
+        swiss_quote_bad = true;
+    }
+
+    if (process.env.SOURCE === 'SwissQuote') {
+
+        // Fix bad pricing before market open
+        let spot_per_gram_usd = 0.0;
+        let spot_per_gram_eur = 0.0;
+        if (swiss_quote_bad) {
+            spot_per_gram_usd = price_cache_usd;
+            spot_per_gram_eur = price_cache_eur;
+        } else {
+            spot_per_gram_usd = await getGoldPriceUSD();
+            spot_per_gram_eur = await getGoldPriceEUR();
+        }
+
+        // Cache the closed market price to use later when SwissQuote
+        // screws it up
+        if (!open_market &&
+            now.getUTCHours() > 0 &&
+            now.getUTCHours() < 1) {
+            price_cache_usd = spot_per_gram_usd;
+            price_cache_eur = spot_per_gram_eur;
+        }
+
+        data = {
+            'usd_per_gram_aux': spot_per_gram_usd,
+            'eur_per_gram_aux': spot_per_gram_eur,
+            'source': 'SwissQuote',
+            'market_open': open_market
+        }
+    } else {
+        let spot_per_gram_usd = await getGoldPriceSB();
+        data = {
+            'usd_per_gram_aux':spot_per_gram_usd,
+            'source': 'SilverBullion',
+            'market_open': open_market
+        };
+    }
     logger.info("Sending data " + JSON.stringify(data, null, 4));
     broadcast(data);
 }
@@ -129,4 +186,4 @@ const interval = setInterval(function ping() {
 }, 30000);
 
 // Want to update price every 5 seconds
-setInterval(getGoldPrice, 5000);
+setInterval(getGoldPrice, process.env.POLL_INTERVAL_MS);
